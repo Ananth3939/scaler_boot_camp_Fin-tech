@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from urllib.parse import urlsplit
 
 import pandas as pd
 import streamlit as st
 
 from finsight.config import get_settings
-from finsight.models import ResearchResponse
+from finsight.models import ResearchResponse, StatementPeriod
 from finsight.orchestration.workflow import run_research
 
 PEER_SHORTLIST = ["MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B"]
@@ -155,9 +156,10 @@ def _render_result(result: ResearchResponse) -> None:
         with st.expander("Company profile", icon=":material/info:"):
             st.write(company.description)
 
-    overview_tab, valuation_tab, peers_tab, headlines_tab, report_tab = st.tabs(
+    overview_tab, performance_tab, valuation_tab, peers_tab, headlines_tab, report_tab = st.tabs(
         [
             ":material/space_dashboard: Overview",
+            ":material/show_chart: Performance & financials",
             ":material/query_stats: Valuation",
             ":material/compare_arrows: Peers",
             ":material/newspaper: Headlines",
@@ -166,6 +168,8 @@ def _render_result(result: ResearchResponse) -> None:
     )
     with overview_tab:
         _render_overview(result)
+    with performance_tab:
+        _render_performance_and_financials(result)
     with valuation_tab:
         _render_valuation(result)
     with peers_tab:
@@ -224,6 +228,203 @@ def _render_overview(result: ResearchResponse) -> None:
         with st.expander("Data quality notes", icon=":material/warning:"):
             for warning in result.warnings:
                 st.warning(warning)
+
+
+def _render_performance_and_financials(result: ResearchResponse) -> None:
+    st.subheader("Share-price performance")
+    history = result.price_history
+    if history and history.points:
+        points = sorted(history.points, key=lambda point: point.as_of)
+        window_days = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365}
+        selected_window = st.select_slider(
+            "Price history window",
+            options=list(window_days),
+            value="1Y",
+            key=f"price_window_{result.request_id}",
+        )
+        cutoff = points[-1].as_of - timedelta(days=window_days[selected_window])
+        window_points = [point for point in points if point.as_of >= cutoff] or points[-1:]
+        first_point, latest_point = window_points[0], window_points[-1]
+        period_return = (latest_point.close / first_point.close - 1) * 100
+        currency = history.currency or (result.stock_price.currency if result.stock_price else None)
+
+        price_metrics = st.columns(4)
+        price_metrics[0].metric(
+            f"{selected_window} return",
+            f"{period_return:+.2f}%",
+            border=True,
+        )
+        price_metrics[0].caption(
+            f"{_money(first_point.close, currency)} → {_money(latest_point.close, currency)}"
+        )
+        price_metrics[1].metric(
+            f"{selected_window} high",
+            _money(max(point.close for point in window_points), currency),
+            border=True,
+        )
+        price_metrics[2].metric(
+            f"{selected_window} low",
+            _money(min(point.close for point in window_points), currency),
+            border=True,
+        )
+        price_metrics[3].metric("Daily observations", len(window_points), border=True)
+
+        chart_data = pd.DataFrame(
+            {
+                "Date": [point.as_of for point in window_points],
+                "Adjusted close": [point.close for point in window_points],
+            }
+        )
+        st.line_chart(
+            chart_data,
+            x="Date",
+            y="Adjusted close",
+            y_label=f"Adjusted close ({currency or 'currency unavailable'})",
+            alt=(
+                f"{result.ticker} adjusted daily closing prices over the selected "
+                f"{selected_window} window"
+            ),
+        )
+
+        year_low = min(point.close for point in points)
+        year_high = max(point.close for point in points)
+        range_position = (
+            (points[-1].close - year_low) / (year_high - year_low) if year_high > year_low else 1.0
+        )
+        st.caption(
+            f"52-week range · {_money(year_low, currency)} to {_money(year_high, currency)} · "
+            f"latest close is {range_position:.0%} of the way through the range"
+        )
+        st.progress(min(max(range_position, 0.0), 1.0))
+        st.caption(
+            f"Source: {history.source.provider} · Latest observation: "
+            f"{points[-1].as_of.isoformat()}"
+        )
+    else:
+        st.info("Price history is unavailable for this company.")
+
+    st.subheader("Reported financial statements")
+    statements = result.financial_statements
+    if statements is None:
+        st.info("Financial statements were unavailable from the provider.")
+        return
+
+    currency = statements.currency or (result.company.currency if result.company else None)
+    income_fields = {
+        "Revenue": ("Total Revenue", "Revenue"),
+        "Gross profit": ("Gross Profit",),
+        "Operating income": ("Operating Income",),
+        "Net income": ("Net Income", "Net Income Common Stockholders"),
+    }
+    income_periods = sorted(statements.income_statement, key=lambda item: item.period_end)[-5:]
+    income_rows = []
+    for period in income_periods:
+        row: dict[str, str | float] = {"Period ending": period.period_end.isoformat()}
+        for label, aliases in income_fields.items():
+            amount = _statement_value(period.values, *aliases)
+            if amount is not None:
+                row[label] = amount
+        if len(row) > 1:
+            income_rows.append(row)
+
+    if income_rows:
+        st.caption(
+            f"Annual income statement · values as returned in {currency or 'provider currency'} · "
+            "amounts are not rescaled"
+        )
+        st.dataframe(
+            income_rows,
+            hide_index=True,
+            width="stretch",
+            alt="Annual revenue, gross profit, operating income, and net income",
+        )
+    else:
+        st.info("No annual income-statement values were returned.")
+
+    balance_period = max(statements.balance_sheet, key=lambda item: item.period_end, default=None)
+    cash_flow_period = max(statements.cash_flow, key=lambda item: item.period_end, default=None)
+    balance_fields = {
+        "Cash and equivalents": (
+            "Cash And Cash Equivalents",
+            "Cash Cash Equivalents And Short Term Investments",
+        ),
+        "Total debt": ("Total Debt",),
+        "Total assets": ("Total Assets",),
+        "Stockholders' equity": ("Stockholders Equity", "Total Stockholder Equity"),
+    }
+    cash_flow_fields = {
+        "Free cash flow": ("Free Cash Flow",),
+        "Operating cash flow": (
+            "Operating Cash Flow",
+            "Cash Flow From Continuing Operating Activities",
+        ),
+        "Capital expenditures": ("Capital Expenditure", "Capital Expenditures"),
+    }
+    balance_values = _period_values(balance_period, balance_fields)
+    cash_flow_values = _period_values(cash_flow_period, cash_flow_fields)
+    balance_column, cash_flow_column = st.columns(2, gap="large")
+    with balance_column:
+        if balance_period and balance_values:
+            st.markdown(f"**Balance sheet · {balance_period.period_end.isoformat()}**")
+            metric_columns = st.columns(2)
+            for index, (label, value) in enumerate(balance_values.items()):
+                metric_columns[index % 2].metric(
+                    label, _compact_money(value, currency), border=True
+                )
+        else:
+            st.caption("No balance-sheet snapshot was returned.")
+    with cash_flow_column:
+        if cash_flow_period and cash_flow_values:
+            st.markdown(f"**Cash flow · {cash_flow_period.period_end.isoformat()}**")
+            metric_columns = st.columns(2)
+            for index, (label, value) in enumerate(cash_flow_values.items()):
+                metric_columns[index % 2].metric(
+                    label, _compact_money(value, currency), border=True
+                )
+        else:
+            st.caption("No cash-flow snapshot was returned.")
+
+    st.caption(
+        f"Financial statement source: {statements.source.provider}. "
+        "Statement units may vary by provider; verify reported periods and scaling."
+    )
+    for warning in statements.warnings:
+        st.warning(warning)
+
+
+def _statement_value(values: dict[str, float | None], *labels: str) -> float | None:
+    normalized = {_normalize_label(label): value for label, value in values.items()}
+    for label in labels:
+        value = normalized.get(_normalize_label(label))
+        if value is not None:
+            return value
+    return None
+
+
+def _period_values(
+    period: StatementPeriod | None,
+    fields: dict[str, tuple[str, ...]],
+) -> dict[str, float]:
+    if period is None:
+        return {}
+    output: dict[str, float] = {}
+    for label, aliases in fields.items():
+        amount = _statement_value(period.values, *aliases)
+        if amount is not None:
+            output[label] = amount
+    return output
+
+
+def _normalize_label(label: str) -> str:
+    return "".join(character.lower() for character in label if character.isalnum())
+
+
+def _compact_money(value: float, currency: str | None) -> str:
+    symbol = currency or "Value"
+    for threshold, suffix in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if abs(value) >= threshold:
+            return f"{symbol} {value / threshold:,.2f}{suffix}"
+    return f"{symbol} {value:,.0f}"
 
 
 def _render_valuation(result: ResearchResponse) -> None:

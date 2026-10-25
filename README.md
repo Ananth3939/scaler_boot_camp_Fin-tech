@@ -47,7 +47,7 @@ uv run finsight ratios AAPL
 uv run streamlit run src/finsight/ui.py
 ```
 
-The research workspace uses sidebar controls and separate tabs for the overview, valuation, peers, headlines, and report. Adjust the DCF discount rate to explore sensitivity, switch the peer chart between P/S and P/E, and download the full brief as Markdown. The theme follows Streamlit's light/dark appearance setting.
+The research workspace uses sidebar controls and tabs for the overview, price performance and annual financials, valuation, peers, headlines, and report. Review one-year daily prices, switch among 1M/3M/6M/1Y windows, inspect reported revenue, income, cash flow, and balance-sheet values, adjust DCF sensitivity, switch peer charts between P/S and P/E, and download the brief as Markdown. The theme follows Streamlit's light/dark appearance setting.
 
 ## HTTP API
 

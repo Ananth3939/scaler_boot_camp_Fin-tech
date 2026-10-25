@@ -189,6 +189,7 @@ def run_research(
         generated_at=datetime.now(UTC),
         company=company,
         stock_price=price,
+        price_history=price_history,
         financial_statements=statements,
         ratios=ratios,
         news=news,

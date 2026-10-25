@@ -209,6 +209,7 @@ class ResearchResponse(FinSightModel):
     generated_at: datetime = Field(default_factory=utc_now)
     company: CompanyProfile | None = None
     stock_price: StockPrice | None = None
+    price_history: PriceHistory | None = None
     financial_statements: FinancialStatements | None = None
     ratios: RatioReport | None = None
     news: NewsSearchResult | None = None
