@@ -47,7 +47,7 @@ uv run finsight ratios AAPL
 uv run streamlit run src/finsight/ui.py
 ```
 
-Enter a ticker and optional comma-separated peer tickers to see the company snapshot, ratios, risk checks, DCF sensitivity, peer multiples, recent headlines, agent status, warnings, and full research brief.
+The research workspace uses sidebar controls and separate tabs for the overview, valuation, peers, headlines, and report. Adjust the DCF discount rate to explore sensitivity, switch the peer chart between P/S and P/E, and download the full brief as Markdown. The theme follows Streamlit's light/dark appearance setting.
 
 ## HTTP API
 
