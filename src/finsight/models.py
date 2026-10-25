@@ -111,7 +111,7 @@ class NewsSearchResult(FinSightModel):
 
 class AgentResult(FinSightModel):
     agent_name: str
-    status: Literal["success", "partial", "failed"]
+    status: Literal["success", "partial", "failed", "not_requested"]
     summary: str
     findings: list[str] = Field(default_factory=list)
     sources: list[DataSource] = Field(default_factory=list)
@@ -164,6 +164,32 @@ class ValuationResult(FinSightModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class ComparablePeerMetric(FinSightModel):
+    ticker: Ticker
+    currency: str
+    period_end: date
+    market_cap: float
+    revenue: float
+    net_income: float | None = None
+    price_to_sales: float
+    price_to_earnings: float | None = None
+
+
+class ComparableValuation(FinSightModel):
+    status: Literal["success", "partial", "unavailable", "not_requested", "failed"]
+    requested_peer_tickers: list[Ticker] = Field(default_factory=list)
+    included_peer_tickers: list[Ticker] = Field(default_factory=list)
+    peer_metrics: list[ComparablePeerMetric] = Field(default_factory=list)
+    median_price_to_sales: float | None = None
+    median_price_to_earnings: float | None = None
+    estimated_value_per_share_ps: float | None = None
+    estimated_value_per_share_pe: float | None = None
+    currency: str | None = None
+    sources: list[DataSource] = Field(default_factory=list)
+    summary: str
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ModelSummary(FinSightModel):
     provider: str
     model_id: str | None = None
@@ -189,6 +215,7 @@ class ResearchResponse(FinSightModel):
     news_sentiment: NewsSentimentAssessment
     risk: RiskAssessment
     valuation: ValuationResult
+    comparables: ComparableValuation
     model_summary: ModelSummary
     agents: list[AgentResult]
     warnings: list[str] = Field(default_factory=list)

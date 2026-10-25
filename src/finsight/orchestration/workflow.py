@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any, Literal
 from uuid import uuid4
 
+from finsight.agents.comparables import calculate_comparable_valuation
 from finsight.agents.financial_data import compute_key_ratios
 from finsight.agents.news_sentiment import assess_headline_sentiment
 from finsight.agents.report_writer import write_markdown_report
@@ -15,6 +18,7 @@ from finsight.llm.factory import create_llm_provider
 from finsight.models import (
     AgentResult,
     CompanyProfile,
+    ComparableValuation,
     DataSource,
     FinancialStatements,
     ModelSummary,
@@ -37,14 +41,16 @@ def run_research(
     *,
     include_news: bool = True,
     include_valuation: bool = True,
+    peer_tickers: tuple[str, ...] | list[str] = (),
 ) -> ResearchResponse:
     """Run independent data fetches concurrently, then assemble typed analysis results."""
     settings = settings or get_settings()
     normalized = normalize_ticker(ticker)
+    normalized_peers = _normalize_peer_tickers(normalized, peer_tickers)
     market = create_market_data_service(settings)
     news_service = create_news_service(settings)
 
-    operations = {
+    operations: dict[str, Callable[[], Any]] = {
         "price": lambda: market.get_stock_price(normalized),
         "history": lambda: market.get_price_history(normalized),
         "company": lambda: market.get_company_info(normalized),
@@ -52,6 +58,9 @@ def run_research(
     }
     if include_news:
         operations["news"] = lambda: news_service.search_recent_news(normalized, limit=10)
+    for peer in normalized_peers:
+        operations[f"peer:{peer}:company"] = partial(market.get_company_info, peer)
+        operations[f"peer:{peer}:statements"] = partial(market.get_financial_statements, peer)
     executor = ThreadPoolExecutor(max_workers=min(settings.max_concurrent_agents, len(operations)))
     futures: dict[str, Future[Any]] = {
         name: executor.submit(operation) for name, operation in operations.items()
@@ -79,6 +88,15 @@ def run_research(
     company = _as_type(results.get("company"), CompanyProfile)
     statements = _as_type(results.get("statements"), FinancialStatements)
     news = _as_type(results.get("news"), NewsSearchResult)
+    peer_inputs: list[tuple[CompanyProfile | None, FinancialStatements | None]] = []
+    peer_failures: list[str] = []
+    for peer in normalized_peers:
+        peer_company = _as_type(results.get(f"peer:{peer}:company"), CompanyProfile)
+        peer_statements = _as_type(results.get(f"peer:{peer}:statements"), FinancialStatements)
+        peer_inputs.append((peer_company, peer_statements))
+        for operation_name in (f"peer:{peer}:company", f"peer:{peer}:statements"):
+            if operation_name in failures:
+                peer_failures.append(f"{peer}: {failures[operation_name]}")
     ratios = compute_key_ratios(statements) if statements is not None else None
     sentiment = assess_headline_sentiment(news) if include_news else _not_requested_sentiment()
     risk = assess_risk(ratios, price_history)
@@ -89,6 +107,13 @@ def run_research(
             status="not_requested",
             summary="Valuation was not requested.",
         )
+    )
+    comparables = calculate_comparable_valuation(
+        company,
+        statements,
+        peer_inputs,
+        normalized_peers,
+        peer_errors=peer_failures,
     )
     try:
         model_summary = create_llm_provider(settings).summarize(
@@ -108,6 +133,11 @@ def run_research(
         warnings.append("Risk coverage is partial; see the risk findings and coverage limits.")
     if include_valuation and valuation.status != "success":
         warnings.append(f"Valuation status: {valuation.status}; see its assumptions and caveats.")
+    warnings.extend(comparables.warnings)
+    if normalized_peers and comparables.status != "success":
+        warnings.append(
+            f"Comparable valuation status: {comparables.status}; see peer and unit caveats."
+        )
     if model_summary.status != "success":
         warnings.extend(model_summary.warnings or ["Model summary was unavailable."])
     if price is None and company is None and statements is None and news is None:
@@ -116,6 +146,7 @@ def run_research(
         failures
         or risk.status != "success"
         or (include_valuation and valuation.status != "success")
+        or (normalized_peers and comparables.status != "success")
         or (include_news and sentiment.status != "success")
         or model_summary.status != "success"
     ):
@@ -136,6 +167,7 @@ def run_research(
         include_news=include_news,
         include_valuation=include_valuation,
         model_summary=model_summary,
+        comparables=comparables,
     )
     markdown = write_markdown_report(
         ticker=normalized,
@@ -146,6 +178,7 @@ def run_research(
         sentiment=sentiment,
         risk=risk,
         valuation=valuation,
+        comparables=comparables,
         warnings=warnings,
         model_summary=model_summary,
     )
@@ -162,6 +195,7 @@ def run_research(
         news_sentiment=sentiment,
         risk=risk,
         valuation=valuation,
+        comparables=comparables,
         model_summary=model_summary,
         agents=agents,
         warnings=warnings,
@@ -179,6 +213,7 @@ def _agent_results(
     risk: RiskAssessment,
     price_history: PriceHistory | None,
     valuation: ValuationResult,
+    comparables: ComparableValuation,
     failures: dict[str, str],
     include_news: bool,
     include_valuation: bool,
@@ -210,6 +245,15 @@ def _agent_results(
         else "partial"
         if valuation.status != "success"
         else "success"
+    )
+    comparable_status: Literal["success", "partial", "failed", "not_requested"] = (
+        "not_requested"
+        if comparables.status == "not_requested"
+        else "success"
+        if comparables.status == "success"
+        else "partial"
+        if comparables.status == "partial"
+        else "failed"
     )
 
     return [
@@ -263,6 +307,22 @@ def _agent_results(
             warnings=valuation.warnings,
         ),
         AgentResult(
+            agent_name="Comparable Valuation Agent",
+            status=comparable_status,
+            summary=comparables.summary,
+            findings=[
+                f"{metric.ticker}: P/S {metric.price_to_sales:.2f}x"
+                + (
+                    f", P/E {metric.price_to_earnings:.2f}x"
+                    if metric.price_to_earnings is not None
+                    else ", P/E unavailable"
+                )
+                for metric in comparables.peer_metrics
+            ],
+            sources=comparables.sources,
+            warnings=comparables.warnings,
+        ),
+        AgentResult(
             agent_name="Report Writer Agent",
             status=(
                 "partial"
@@ -272,7 +332,7 @@ def _agent_results(
                 else "success"
             ),
             summary="Assembled a source-aware Markdown brief from the available tool results.",
-            sources=_unique_sources(statements, news, ratios),
+            sources=_unique_sources(statements, news, ratios, comparables),
             warnings=list(failures.values()) + model_summary.warnings,
         ),
     ]
@@ -282,6 +342,7 @@ def _unique_sources(
     statements: FinancialStatements | None,
     news: NewsSearchResult | None,
     ratios: RatioReport | None,
+    comparables: ComparableValuation,
 ) -> list[DataSource]:
     sources: list[DataSource] = []
     seen: set[tuple[str, str | None]] = set()
@@ -289,6 +350,7 @@ def _unique_sources(
         statements.source if statements else None,
         news.source if news else None,
         ratios.source if ratios else None,
+        *comparables.sources,
     ]
     for source in candidates:
         if source is None:
@@ -302,6 +364,17 @@ def _unique_sources(
 
 def _as_type(value: Any, expected: type[Any]) -> Any:
     return value if isinstance(value, expected) else None
+
+
+def _normalize_peer_tickers(ticker: str, peers: tuple[str, ...] | list[str]) -> list[str]:
+    normalized = [normalize_ticker(peer) for peer in peers]
+    if len(normalized) > 10:
+        raise ValueError("no more than 10 peer tickers may be requested")
+    if ticker in normalized:
+        raise ValueError("the subject ticker cannot also be a peer")
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("peer tickers must be unique")
+    return normalized
 
 
 def _error_text(exc: Exception) -> str:

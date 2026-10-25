@@ -4,7 +4,7 @@
 > tool integration through MCP, agent-to-agent communication through
 > A2A, and an optional Amazon Bedrock + Strands Agents deployment path.
 
-**Status:** Runnable local CLI/API/UI, mock and Bedrock adapters, MCP, Docker configuration, and CI quality gates. A2A, production controls, a test suite, and cloud deployment remain future work.\
+**Status:** Runnable local CLI/API/UI, mock and Bedrock adapters, MCP, peer multiples, API controls, tests, Docker configuration, and CI quality gates. A2A and cloud deployment remain optional future work.\
 **Primary language:** Python 3.11+\
 **Local-first:** Yes\
 **Cloud path:** AWS, Amazon Bedrock, and optionally Amazon Bedrock
@@ -653,10 +653,11 @@ Current implementation status:
 -   [x] Provider errors produce useful failures or clearly labelled
     partial results.
 -   [x] Read-only MCP tools are exposed.
+-   [x] User-selected comparable peers can produce P/S and P/E scenarios with currency and unit caveats.
 -   [ ] At least one agent can be called remotely through A2A, if A2A is
     enabled.
 -   [x] The default mock-model path works without paid credentials.
--   [ ] Unit and integration tests pass in CI.
+-   [x] Deterministic unit and API tests pass in CI.
 -   [x] The API can be run locally; a Docker image and Compose service
     are configured but require Docker to build and run.
 -   [x] `.env` is excluded from Git; credentials are not written by the
@@ -665,15 +666,15 @@ Current implementation status:
 
 ## 14. Suggested build order
 
-The current build has completed the local workflow, API, optional model,
-MCP, and UI milestones. Remaining work should follow this order:
+The local workflow, API, optional model, MCP, UI, peer scenarios, tests,
+and basic API controls are implemented. Remaining work should follow this
+order:
 
-1.  Add deterministic unit and integration tests.
-2.  Add consistent units, peer data, and comparable-company valuation.
-3.  Add structured observability and production API controls.
-4.  Build and verify the container when Docker is available.
-5.  Add A2A after a real remote-agent use case exists.
-6.  Evaluate authenticated cloud deployment only when needed.
+1.  Verify provider units and evaluate a licensed market-data source.
+2.  Build and verify the container when Docker is available.
+3.  Add metrics, traces, and distributed request limiting if needed.
+4.  Add A2A after a real remote-agent use case exists.
+5.  Evaluate authenticated cloud deployment only when needed.
 
 This sequence keeps the project runnable throughout development and
 makes debugging much easier.

@@ -1,6 +1,6 @@
 # FinSight AI
 
-FinSight AI is a local-first financial research app. It fetches market and company data, calculates transparent ratios and risk indicators, screens recent headlines, and produces an illustrative DCF scenario with sensitivity values and a cited Markdown brief.
+FinSight AI is a local-first financial research app. It fetches market and company data, calculates transparent ratios and risk indicators, screens recent headlines, and produces illustrative DCF and optional peer-multiple scenarios with a cited Markdown brief.
 
 The app is for education and research, not investment, tax, or legal advice. Data from Yahoo Finance may be delayed, incomplete, or subject to provider terms. DCF values are scenarios; verify statement units and assumptions before relying on them.
 
@@ -8,11 +8,13 @@ The app is for education and research, not investment, tax, or legal advice. Dat
 
 - Typed data and agent results, source metadata, retrieval timestamps, warnings, bounded concurrency, and partial-result handling.
 - CLI, localhost FastAPI API, and a Streamlit browser UI.
+- Optional user-selected peer valuation using same-currency P/S and positive-earnings P/E medians.
 - Optional read-only MCP server, defaulting to stdio.
 - Deterministic mock model by default; optional Amazon Bedrock summary adapter.
-- Docker image and Compose configuration for the API, plus Ruff and mypy CI checks.
+- Optional bearer-key API authentication, bounded per-process rate limiting, a non-loopback bind guard, and structured request logs.
+- Docker image and Compose configuration for the API, deterministic tests, and Ruff/mypy/pytest CI checks.
 
-A2A, comparable-company valuation, a production authentication layer, a test suite, and public cloud deployment are not implemented. A2A is deferred until a specialist needs separate deployment. Public deployment needs additional security and operational work.
+A2A is deferred until a specialist needs separate deployment. The API result store and rate limiter are in-memory and single-process; public deployment still needs HTTPS termination, managed secrets, durable storage, and production monitoring.
 
 ## Setup
 
@@ -20,7 +22,7 @@ Use Python 3.11 or newer and [uv](https://docs.astral.sh/uv/). Install every loc
 
 ```bash
 uv sync --all-extras
-cp .env.example .env  # optional local settings
+cp -n .env.example .env  # optional local settings; leaves an existing .env untouched
 ```
 
 Activate the environment with `source .venv/bin/activate`, or run commands through `uv run`.
@@ -30,6 +32,7 @@ Activate the environment with `source .venv/bin/activate`, or run commands throu
 ```bash
 uv run finsight research AAPL
 uv run finsight research MSFT --json
+uv run finsight research AAPL --peers MSFT GOOGL AMZN
 ```
 
 Other CLI commands are `price`, `company`, `statements`, `ratios`, and `news`. For example:
@@ -44,7 +47,7 @@ uv run finsight ratios AAPL
 uv run streamlit run src/finsight/ui.py
 ```
 
-Enter a ticker to see the company snapshot, ratios, risk checks, DCF sensitivity, recent headlines, agent status, warnings, and full research brief.
+Enter a ticker and optional comma-separated peer tickers to see the company snapshot, ratios, risk checks, DCF sensitivity, peer multiples, recent headlines, agent status, warnings, and full research brief.
 
 ## HTTP API
 
@@ -52,15 +55,15 @@ Enter a ticker to see the company snapshot, ratios, risk checks, DCF sensitivity
 uv run finsight-api
 ```
 
-Open `http://127.0.0.1:8000/docs`. The API provides `GET /health`, `POST /research`, and `GET /research/{request_id}`. Research results are held in a bounded in-memory store and expire; restarting the process clears them.
+Open `http://127.0.0.1:8000/docs`. The API provides `GET /health`, `POST /research`, and `GET /research/{request_id}`. Research results are held in a bounded in-memory store and expire; restarting the process clears them. The research routes are rate-limited. Set `API_KEY` in `.env` to require a bearer key; any non-loopback bind is rejected unless a key is configured.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/research \
   -H 'Content-Type: application/json' \
-  -d '{"ticker":"AAPL","include_news":true,"include_valuation":true}'
+  -d '{"ticker":"AAPL","include_news":true,"include_valuation":true,"peer_tickers":["MSFT","GOOGL","AMZN"]}'
 ```
 
-The API binds to loopback by default. It does not include authentication or rate limiting; keep it local until those controls are added.
+If `API_KEY` is set, add `-H 'Authorization: Bearer <your-api-key>'` to the curl command, replacing the placeholder with the value from `.env`. API request logs are JSON and omit request bodies, authorization headers, and query strings. Responses include an `X-Request-ID` header. The in-memory limiter is intended for one local process, not as a distributed production control.
 
 ## MCP tools
 
@@ -89,9 +92,12 @@ Bedrock inference can incur charges. Do not put AWS credentials in `.env`; use y
 
 ## Container
 
-The container runs the API as a non-root user and Compose publishes it only on localhost:
+The container runs the API as a non-root user and Compose publishes it only on localhost. Compose requires a key because the server binds inside the container to `0.0.0.0`:
 
 ```bash
+cp -n .env.example .env
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+# Put the generated value on the API_KEY line in .env.
 docker compose up --build
 ```
 
@@ -100,12 +106,17 @@ Docker must be installed and running. No cloud resources are created by this com
 ## Quality checks
 
 ```bash
+uv run pytest -q
 uv run ruff check .
-uv run ruff format --check src/finsight
+uv run ruff format --check .
 uv run mypy
 ```
 
-The repository currently has CI for Ruff and mypy. Numerical research should be reviewed with deterministic fixtures before this project is used beyond learning; no automated test suite has been added yet.
+CI runs the deterministic unit/API suite plus Ruff and mypy. Live provider behavior is still subject to data availability and terms.
+
+## License
+
+This repository uses the MIT License; see [LICENSE](LICENSE).
 
 ## Architecture notes
 

@@ -1,4 +1,4 @@
-.PHONY: install cli api mcp ui lint typecheck
+.PHONY: install cli api mcp ui test lint typecheck
 
 install:
 	uv sync --all-extras
@@ -14,6 +14,9 @@ mcp:
 
 ui:
 	streamlit run src/finsight/ui.py
+
+test:
+	pytest -q
 
 lint:
 	ruff check .

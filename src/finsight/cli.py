@@ -29,6 +29,13 @@ def _parser() -> argparse.ArgumentParser:
     research.add_argument(
         "--json", action="store_true", help="Print the full structured response as JSON"
     )
+    research.add_argument(
+        "--peers",
+        nargs="*",
+        default=[],
+        metavar="TICKER",
+        help="Optional peer tickers for comparable-company valuation (up to 10)",
+    )
     return parser
 
 
@@ -43,7 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print_model(create_news_service().search_recent_news(args.ticker, args.limit))
             return 0
         if args.command == "research":
-            response = run_research(args.ticker)
+            response = run_research(args.ticker, peer_tickers=args.peers)
             if args.json:
                 _print_model(response)
             else:

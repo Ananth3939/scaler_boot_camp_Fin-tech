@@ -16,6 +16,10 @@ def main() -> None:
 
     with st.form("research_request"):
         ticker = st.text_input("Ticker", value="AAPL", max_chars=15).strip().upper()
+        peer_text = st.text_input(
+            "Peer tickers (optional, comma-separated)",
+            placeholder="MSFT, GOOGL, AMZN",
+        )
         left, right = st.columns(2)
         include_news = left.checkbox("Include recent news", value=True)
         include_valuation = right.checkbox("Include DCF scenario", value=True)
@@ -29,6 +33,7 @@ def main() -> None:
                     get_settings(),
                     include_news=include_news,
                     include_valuation=include_valuation,
+                    peer_tickers=[peer.strip() for peer in peer_text.split(",") if peer.strip()],
                 )
         except ValueError as exc:
             st.error(str(exc))
@@ -126,6 +131,50 @@ def _render_result(result: ResearchResponse) -> None:
         st.info(valuation.summary)
     for warning in valuation.warnings:
         st.caption(f"Valuation caveat: {warning}")
+
+    st.markdown("### Comparable-company scenario")
+    comparables = result.comparables
+    st.caption(comparables.summary)
+    if comparables.peer_metrics:
+        comparison_values = []
+        if comparables.estimated_value_per_share_ps is not None:
+            comparison_values.append(
+                (
+                    "P/S scenario per share",
+                    _money(comparables.estimated_value_per_share_ps, comparables.currency),
+                )
+            )
+        if comparables.estimated_value_per_share_pe is not None:
+            comparison_values.append(
+                (
+                    "P/E scenario per share",
+                    _money(comparables.estimated_value_per_share_pe, comparables.currency),
+                )
+            )
+        if comparison_values:
+            metric_columns = st.columns(len(comparison_values))
+            for column, (label, value) in zip(metric_columns, comparison_values, strict=True):
+                column.metric(label, value)
+        st.dataframe(
+            [
+                {
+                    "Peer": metric.ticker,
+                    "P/S multiple": f"{metric.price_to_sales:.2f}×",
+                    "P/E multiple": (
+                        f"{metric.price_to_earnings:.2f}×"
+                        if metric.price_to_earnings is not None
+                        else "Unavailable"
+                    ),
+                    "Currency": metric.currency,
+                }
+                for metric in comparables.peer_metrics
+            ],
+            hide_index=True,
+            width="stretch",
+            alt="Peer price-to-sales and price-to-earnings multiples",
+        )
+    for warning in comparables.warnings:
+        st.caption(f"Comparable valuation caveat: {warning}")
 
     st.markdown("### Recent headlines")
     st.write(result.news_sentiment.summary)

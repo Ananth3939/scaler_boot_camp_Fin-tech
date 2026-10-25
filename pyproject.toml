@@ -21,7 +21,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "httpx>=0.27,<1",
     "mypy>=1.10,<2",
+    "pytest>=8,<9",
     "ruff>=0.5,<1",
 ]
 bedrock = ["boto3>=1.40,<2"]

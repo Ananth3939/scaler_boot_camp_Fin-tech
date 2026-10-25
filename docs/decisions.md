@@ -16,7 +16,7 @@ The default provider is deterministic mock output so a local run needs no paid c
 
 ## API storage and exposure
 
-The API binds to loopback and holds recent results in a bounded in-memory store. Restarting clears the store. Authentication, rate limiting, durable storage, and production monitoring are not implemented, so the API is for local use only.
+The API binds to loopback by default and holds recent results in a bounded in-memory store. Restarting clears the store. Research routes support an optional bearer key and a bounded per-process rate limit; a non-loopback bind requires `API_KEY`. JSON request logs omit bodies, authorization headers, and query strings. Distributed rate limiting, durable storage, HTTPS termination, and production monitoring are not implemented, so the API is still intended for local use.
 
 ## MCP and A2A
 
@@ -26,8 +26,8 @@ A2A is deferred because the current specialist workflow has no separate service 
 
 ## Valuation scope
 
-The DCF uses available annual cash flow, cash, debt, and shares data; assumptions are explicit and the report includes growth/discount sensitivity. Comparable-company valuation is deferred until a defensible peer set and consistent market-data source are available. Provider unit ambiguity means the DCF is an illustrative scenario, not a reliable fair-value estimate.
+The DCF uses available annual cash flow, cash, debt, and shares data; assumptions are explicit and the report includes growth/discount sensitivity. Comparable scenarios use user-selected peers, same-currency P/S and positive-earnings P/E medians, and subject-company revenue/earnings per share. The provider does not publish consistent statement-unit metadata; both valuation methods disclose that limitation and are illustrative scenarios, not fair-value estimates.
 
 ## Deployment and quality
 
-Docker and Compose are configured for a local API container. No public cloud resources are created. CI currently runs Ruff and mypy. A deterministic automated test suite, production observability, authenticated deployment, and cloud infrastructure remain future work.
+The repository uses the MIT License. Docker and Compose are configured for a local API container, but the image has not been built in this environment because Docker is unavailable. CI runs deterministic pytest coverage, Ruff, and mypy. Request-level JSON logging is implemented; metrics, traces, distributed rate limits, authenticated deployment, and cloud infrastructure remain future work.

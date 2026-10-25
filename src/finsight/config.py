@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=8000, gt=0, le=65535)
+    api_key: SecretStr = SecretStr("")
+    rate_limit_requests: int = Field(default=20, gt=0, le=1000)
+    rate_limit_window_seconds: int = Field(default=60, gt=0, le=3600)
     llm_provider: str = "mock"
     aws_region: str = "us-east-1"
     bedrock_model_id: str = ""

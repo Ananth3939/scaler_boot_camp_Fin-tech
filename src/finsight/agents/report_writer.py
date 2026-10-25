@@ -5,6 +5,7 @@ from urllib.parse import quote, urlsplit
 
 from finsight.models import (
     CompanyProfile,
+    ComparableValuation,
     ModelSummary,
     NewsSearchResult,
     NewsSentimentAssessment,
@@ -24,6 +25,7 @@ def write_markdown_report(
     sentiment: NewsSentimentAssessment,
     risk: RiskAssessment,
     valuation: ValuationResult,
+    comparables: ComparableValuation,
     warnings: list[str],
     model_summary: ModelSummary | None = None,
 ) -> str:
@@ -116,6 +118,34 @@ def write_markdown_report(
     for warning in valuation.warnings:
         lines.append(f"- Caveat: {warning}")
 
+    lines.extend(["", "## Comparable-company scenario"])
+    lines.append(f"- {comparables.summary}")
+    if comparables.estimated_value_per_share_ps is not None:
+        lines.append(
+            f"- P/S scenario: {comparables.currency or 'currency unavailable'} "
+            f"{comparables.estimated_value_per_share_ps:,.2f} per share."
+        )
+    if comparables.estimated_value_per_share_pe is not None:
+        lines.append(
+            f"- P/E scenario: {comparables.currency or 'currency unavailable'} "
+            f"{comparables.estimated_value_per_share_pe:,.2f} per share."
+        )
+    if comparables.peer_metrics:
+        lines.append("- Peer multiples:")
+        lines.append("\n  | Ticker | P/S | P/E |\n  |---|---:|---:|")
+        for peer_metric in comparables.peer_metrics:
+            price_to_earnings = (
+                f"{peer_metric.price_to_earnings:.2f}x"
+                if peer_metric.price_to_earnings is not None
+                else "n/a"
+            )
+            lines.append(
+                f"  | {peer_metric.ticker} | {peer_metric.price_to_sales:.2f}x | "
+                f"{price_to_earnings} |"
+            )
+    for warning in comparables.warnings:
+        lines.append(f"- Caveat: {warning}")
+
     lines.extend(["", "## News"])
     lines.append(f"- {sentiment.summary}")
     for warning in sentiment.warnings:
@@ -150,6 +180,7 @@ def write_markdown_report(
         company.source if company else None,
         ratios.source if ratios else None,
         news.source if news else None,
+        *comparables.sources,
     ]:
         if source and source.url and source.url not in sources:
             sources.append(source.url)

@@ -14,6 +14,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e ".[dev,mcp]"
+      - run: pytest -q
       - run: ruff check .
-      - run: ruff format --check src/finsight
+      - run: ruff format --check .
       - run: mypy
