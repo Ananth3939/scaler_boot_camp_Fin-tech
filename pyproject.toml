@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finsight-ai"
+version = "0.1.0"
+description = "A local-first financial research platform with typed data tools."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "curl-cffi>=0.7,<1",
+    "fastapi>=0.115,<1",
+    "pandas>=2.1,<3.1",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.2,<3",
+    "python-dotenv>=1,<2",
+    "uvicorn[standard]>=0.30,<1",
+    "yfinance>=0.2.56,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10,<2",
+    "ruff>=0.5,<1",
+]
+bedrock = ["boto3>=1.40,<2"]
+mcp = ["mcp>=2,<3"]
+ui = ["streamlit>=1.40,<2"]
+
+[project.scripts]
+finsight = "finsight.cli:main"
+finsight-api = "finsight.api.main:run"
+finsight-mcp = "finsight.protocols.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+extend-exclude = ["gpt.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+packages = ["finsight"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = [
+    "boto3.*",
+    "botocore.*",
+    "numpy",
+    "numpy.*",
+    "pandas.*",
+    "streamlit.*",
+    "yfinance.*",
+]
+ignore_missing_imports = true
+follow_imports = "skip"
